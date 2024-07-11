@@ -110,9 +110,18 @@ if [ "x$GC_LOG_ENABLED" = "xtrue" ]; then
   KAFKA_GC_LOG_OPTS="-Xloggc:$LOG_DIR/$GC_LOG_FILE_NAME -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps "
 fi
 
+# Configuration variables
+JMX_EXPORTER_JAR="jmx_prometheus_javaagent-1.0.1.jar"
+JMX_EXPORTER_CONFIG="jmx_prometheus_config.yaml"
+JMX_EXPORTER_PATH="/Users/macbookpro/tools/jmx_exporter"
+CONFIG_PATH="/Users/macbookpro/workspace/ideaprojects/mq-end2end-monitor/config"
+
+# jmx_exporter
+JMX_EXPORTER_OPTS="-javaagent:${JMX_EXPORTER_PATH}/${JMX_EXPORTER_JAR}=8081:${CONFIG_PATH}/${JMX_EXPORTER_CONFIG}"
+
 # Launch mode
 if [ "x$DAEMON_MODE" = "xtrue" ]; then
-  nohup $JAVA $KAFKA_HEAP_OPTS $KAFKA_JVM_PERFORMANCE_OPTS $KAFKA_GC_LOG_OPTS $KAFKA_JMX_OPTS -cp $CLASSPATH $KAFKA_OPTS "$@" > "$CONSOLE_OUTPUT_FILE" 2>&1 < /dev/null &
+  nohup $JAVA $JMX_EXPORTER_OPTS $KAFKA_HEAP_OPTS $KAFKA_JVM_PERFORMANCE_OPTS $KAFKA_GC_LOG_OPTS $KAFKA_JMX_OPTS -cp $CLASSPATH $KAFKA_OPTS "$@" > "$CONSOLE_OUTPUT_FILE" 2>&1 < /dev/null &
 else
-  exec $JAVA $KAFKA_HEAP_OPTS $KAFKA_JVM_PERFORMANCE_OPTS $KAFKA_GC_LOG_OPTS $KAFKA_JMX_OPTS $KAFKA_LOG4J_OPTS -cp $CLASSPATH $KAFKA_OPTS "$@"
+  exec $JAVA $JMX_EXPORTER_OPTS $KAFKA_HEAP_OPTS $KAFKA_JVM_PERFORMANCE_OPTS $KAFKA_GC_LOG_OPTS $KAFKA_JMX_OPTS $KAFKA_LOG4J_OPTS -cp $CLASSPATH $KAFKA_OPTS "$@"
 fi

@@ -74,12 +74,14 @@ public class XinfraMonitor {
       Class<?> aClass = Class.forName(className);
       if (App.class.isAssignableFrom(aClass)) {
         App clusterApp = (App) Class.forName(className).getConstructor(Map.class, String.class).newInstance(props, clusterName);
+        //一个集群对应一个App
         _apps.put(clusterName, clusterApp);
       } else if (Service.class.isAssignableFrom(aClass)) {
         ServiceFactory serviceFactory = (ServiceFactory) Class.forName(className + XinfraMonitorConstants.FACTORY)
             .getConstructor(Map.class, String.class)
             .newInstance(props, clusterName);
         Service service = serviceFactory.createService();
+        //一个service多个集群共用，如：com.linkedin.kmf.services.DefaultMetricsReporterService
         _services.put(clusterName, service);
       } else {
         throw new IllegalArgumentException(className + " should implement either " + App.class.getSimpleName() + " or " + Service.class.getSimpleName());
