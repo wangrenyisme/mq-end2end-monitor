@@ -33,7 +33,7 @@ public abstract class AbstractService implements Service {
   private final int _describeTopicRetries;
   private final Duration _describeTopicRetryInterval;
 
-  AbstractService(int describeTopicRetries, Duration describeTopicRetryInterval) {
+  protected AbstractService(int describeTopicRetries, Duration describeTopicRetryInterval) {
     if (describeTopicRetries < 1) {
       throw new IllegalArgumentException("Expect retry greater 0. Got: " + describeTopicRetries);
     }

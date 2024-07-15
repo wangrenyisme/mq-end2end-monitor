@@ -19,8 +19,8 @@ import java.util.concurrent.TimeUnit;
 
 
 /**
- * This service periodically checks and rebalances the monitor topic across brokers so that
- * leadership of partitions of the monitor topic is distributed evenly across brokers in the cluster
+ * This service periodically checks and rebalances the monitor topic across brokers so that leadership of partitions of the monitor topic is distributed evenly across brokers in the cluster
+ * 此服务定期检查并跨代理重新平衡监视主题，以便监视主题的分区领导权在集群中的代理之间均匀分布
  */
 public class TopicManagementService implements Service {
   private final MultiClusterTopicManagementService _multiClusterTopicManagementService;

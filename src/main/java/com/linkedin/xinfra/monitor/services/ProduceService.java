@@ -83,7 +83,9 @@ public class ProduceService extends AbstractService {
     ProduceServiceConfig config = new ProduceServiceConfig(props);
     _brokerList = config.getString(ProduceServiceConfig.BOOTSTRAP_SERVERS_CONFIG);
     String producerClass = config.getString(ProduceServiceConfig.PRODUCER_CLASS_CONFIG);
+    //这用于导出用于配置延迟百分位数度量的桶号。任何大于这个最大值的延迟将被舍入到最大值。
     int latencyPercentileMaxMs = config.getInt(ProduceServiceConfig.LATENCY_PERCENTILE_MAX_MS_CONFIG);
+    //这用于导出用于配置延迟百分位数度量的桶号。指定百分位数的延迟应该是该值的倍数。
     int latencyPercentileGranularityMs = config.getInt(ProduceServiceConfig.LATENCY_PERCENTILE_GRANULARITY_MS_CONFIG);
     _partitioner = config.getConfiguredInstance(ProduceServiceConfig.PARTITIONER_CLASS_CONFIG, KMPartitioner.class);
     _threadsNum = config.getInt(ProduceServiceConfig.PRODUCE_THREAD_NUM_CONFIG);
