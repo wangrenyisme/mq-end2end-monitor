@@ -10,44 +10,59 @@
 
 package com.linkedin.xinfra.monitor.producer;
 
+import com.linkedin.xinfra.monitor.services.configs.PulsarServiceConfig;
 import org.apache.kafka.clients.producer.RecordMetadata;
-import org.apache.pulsar.client.api.*;
+import org.apache.pulsar.client.api.AuthenticationFactory;
+import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
+import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.TypedMessageBuilder;
 
-import java.util.Arrays;
 import java.util.Properties;
 
-/*
- * Wrap around the new producer from Apache Kafka and implement the #KMBaseProducer interface
- */
 public class PulsarProducer implements KMBaseProducer {
 
-    private final PulsarClient client;
-    private final Producer<String> producer;
+  private final PulsarClient _client;
+  private final Producer<String>[] _producers;
+  private final int _partitions;
 
-    public PulsarProducer(Properties producerProps) throws PulsarClientException {
-        client = PulsarClient.builder().serviceUrl(producerProps.getProperty("url")).authentication(AuthenticationFactory.token(producerProps.getProperty("token"))).build();
-        producer = client.newProducer(Schema.STRING).topic(producerProps.getProperty("topic")).create();
+
+  public PulsarProducer(Properties producerProps, int partitions) throws PulsarClientException {
+    _producers = new Producer[partitions];
+    _partitions = partitions;
+    _client = PulsarClient.builder().serviceUrl(producerProps.getProperty(PulsarServiceConfig.SERVICE_URL)).authentication(AuthenticationFactory.token(producerProps.getProperty(PulsarServiceConfig.TOKEN))).build();
+    String topic = producerProps.getProperty(PulsarServiceConfig.TOPIC);
+    for (int partition = 0; partition < _partitions; partition++) {
+      this._producers[partition] = _client.newProducer(Schema.STRING).topic(topic + "-partition-" + partition).create();
+    }
+  }
+
+  @Override
+  public RecordMetadata send(BaseProducerRecord baseRecord, boolean sync) throws Exception {
+    TypedMessageBuilder<String> message = _producers[baseRecord.partition()].newMessage().key(baseRecord.key()).value(baseRecord.value());
+    MessageId messageId;
+    if (sync) {
+      messageId = message.send();
+    } else {
+      message.sendAsync();
+      messageId = null;  // Assuming async send does not return MessageId immediately
     }
 
-    @Override
-    public RecordMetadata send(BaseProducerRecord baseRecord, boolean sync) throws Exception {
-        TypedMessageBuilder<String> message = producer.newMessage().key(baseRecord.key()).value(baseRecord.value());
-        if (sync) {
-            MessageId messageId = message.send();
-        } else {
-            message.sendAsync();
-        }
-        return null;
-    }
+    return null;
+  }
 
-    @Override
-    public void close() {
-        try {
-            producer.close();
-            client.close();
-        } catch (PulsarClientException e) {
-            throw new RuntimeException(e);
-        }
+  @Override
+  public void close() {
+    try {
+      for (Producer<String> producer : _producers) {
+        producer.close();
+      }
+      _client.close();
+    } catch (PulsarClientException e) {
+      throw new RuntimeException(e);
     }
+  }
 
 }
