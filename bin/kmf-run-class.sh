@@ -69,7 +69,7 @@ fi
 
 # Memory options
 if [ -z "$KAFKA_HEAP_OPTS" ]; then
-  KAFKA_HEAP_OPTS="-Xmx256M"
+  KAFKA_HEAP_OPTS="-Xms8g -Xmx8g -Xmn4g -XX:MetaspaceSize=512m -XX:MaxMetaspaceSize=512m"
 fi
 
 # JVM performance options
@@ -113,8 +113,8 @@ fi
 # Configuration variables
 JMX_EXPORTER_JAR="jmx_prometheus_javaagent-1.0.1.jar"
 JMX_EXPORTER_CONFIG="jmx_prometheus_config.yaml"
-JMX_EXPORTER_PATH="/Users/macbookpro/tools/jmx_exporter"
-CONFIG_PATH="/Users/macbookpro/workspace/ideaprojects/mq-end2end-monitor/config"
+JMX_EXPORTER_PATH="$base_dir/tools/jmx_exporter"
+CONFIG_PATH="$base_dir/tools/jmx_exporter/conf"
 
 # jmx_exporter
 JMX_EXPORTER_OPTS="-javaagent:${JMX_EXPORTER_PATH}/${JMX_EXPORTER_JAR}=8081:${CONFIG_PATH}/${JMX_EXPORTER_CONFIG}"

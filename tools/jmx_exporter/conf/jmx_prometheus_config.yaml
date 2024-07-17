@@ -1,0 +1,25 @@
+rules:
+  - pattern: kmf.services<type=consume-service, name=(.+)><>records-delay-ms-99th
+    name: records-delay-ms-99th
+    labels:
+      cluster: "$1"
+  - pattern: kmf.services<type=consume-service, name=(.+)><>records-delay-ms-avg
+    name: records-delay-ms-avg
+    labels:
+      cluster: "$1"
+  - pattern: kmf.services<type=consume-service, name=(.+)><>records-consumed-rate
+    name: records-consumed-rate
+    labels:
+      cluster: "$1"
+  - pattern: kmf.services<type=produce-service, name=(.+)><>records-produced-rate
+    name: records-produced-rate
+    labels:
+      cluster: "$1"
+  - pattern: kmf.services<type=produce-service, name=(.+)><>produce-delay-ms-avg
+    name: produce-delay-ms-avg
+    labels:
+      cluster: "$1"
+  - pattern: kmf.services<type=produce-service, name=(.+)><>produce-delay-ms-99th
+    name: produce-delay-ms-99th
+    labels:
+      cluster: "$1"
