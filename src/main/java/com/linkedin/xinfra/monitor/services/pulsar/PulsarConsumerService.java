@@ -67,7 +67,7 @@ public class PulsarConsumerService implements Service {
   public void start() {
     _running.set(true);
     _executorService.submit(new ConsumerHandler());
-    LOG.info("{}/ProduceService started", _name);
+    LOG.info("{}/PulsarConsumerService started", _name);
   }
 
   @Override

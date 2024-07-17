@@ -16,7 +16,6 @@ import com.linkedin.xinfra.monitor.producer.PulsarProducer;
 import com.linkedin.xinfra.monitor.services.AbstractService;
 import com.linkedin.xinfra.monitor.services.configs.PulsarServiceConfig;
 import com.linkedin.xinfra.monitor.services.metrics.ProduceMetrics;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.MetricConfig;
@@ -50,8 +49,8 @@ public class PulsarProduceService extends AbstractService {
   private static final Logger LOG = LoggerFactory.getLogger(PulsarProduceService.class);
   private final String _name;
   private final ProduceMetrics _sensors;
-  private final int _produceDelayMs = 100;
-  private final boolean _sync = false;
+  private final int _produceDelayMs = 1000;
+  private final boolean _sync = true;
   private final AtomicBoolean _running;
   private final int _recordSize = 30;
   private final String _topic;
@@ -70,7 +69,7 @@ public class PulsarProduceService extends AbstractService {
     _producerProps.putAll(props);
     _partitionNum = getTopicPartitionNums();
     initializeProducer();
-    _produceExecutor = Executors.newScheduledThreadPool(_partitionNum, new ProduceServiceThreadFactory());
+    _produceExecutor = Executors.newScheduledThreadPool(5, new ProduceServiceThreadFactory());
     MetricConfig metricConfig = new MetricConfig().samples(60).timeWindow(1000, TimeUnit.MILLISECONDS);
     List<MetricsReporter> reporters = new ArrayList<>();
     reporters.add(new JmxReporter(JMX_PREFIX));

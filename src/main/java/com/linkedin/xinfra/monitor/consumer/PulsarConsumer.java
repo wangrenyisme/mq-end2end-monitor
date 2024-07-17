@@ -43,7 +43,7 @@ public class PulsarConsumer implements KMBaseConsumer {
       _client = PulsarClient.builder().serviceUrl(consumerProperties.getProperty(PulsarServiceConfig.SERVICE_URL)).authentication(AuthenticationFactory.token(consumerProperties.getProperty(PulsarServiceConfig.TOKEN))).build();
       _consumer = _client.newConsumer(Schema.STRING).topic(topic).subscriptionName(consumerProperties.getProperty(PulsarServiceConfig.SUBSCRIPTION_NAME)).subscriptionType(SubscriptionType.Exclusive).subscribe();
     } catch (PulsarClientException e) {
-      LOG.error(e.getMessage(),e);
+      LOG.error(e.getMessage(), e);
       throw new RuntimeException(e);
     }
   }

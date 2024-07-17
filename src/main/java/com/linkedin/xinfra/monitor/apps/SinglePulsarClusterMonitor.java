@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public class SinglePulsarClusterMonitor implements App {
   private static final Logger LOG = LoggerFactory.getLogger(SinglePulsarClusterMonitor.class);
@@ -54,11 +55,19 @@ public class SinglePulsarClusterMonitor implements App {
 
   @Override
   public boolean isRunning() {
-    return false;
+    for (Service service : _allServices) {
+      if (!service.isRunning()) {
+        LOG.error("{} service is not running", service.getServiceName());
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override
   public void awaitShutdown() {
-
+    for (Service service : _allServices) {
+      service.awaitShutdown(Integer.MAX_VALUE, TimeUnit.MILLISECONDS);
+    }
   }
 }
