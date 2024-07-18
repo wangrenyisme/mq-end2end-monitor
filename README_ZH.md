@@ -31,9 +31,14 @@ $ cd ..
 $ ./bin/xinfra-monitor-start.sh config/xinfra-monitor-dev.json
 ```
 
-
+### 查看观测指标
+```shell
+http://localhost:8081/metrics
+```
 # 配置
 [xinfra-monitor-examples.json](config%2Fxinfra-monitor-examples.json) 文件中演示了 Kafka（开ACL&不开ACL） 及 Pulsar 的配置方式
+
+[jmx_prometheus_config.yaml](tools%2Fjmx_exporter%2Fconf%2Fjmx_prometheus_config.yaml) 文件中配置了采集的指标，可以按需添加
 
 # 设计
 ## HTTP 端口设计
