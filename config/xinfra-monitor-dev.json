@@ -1,28 +1,25 @@
 {
-  "single-cluster-monitor": {
+  "kafka-cluster-a": {
     "class.name": "com.linkedin.xinfra.monitor.apps.SingleClusterMonitor",
     "topic": "xinfra-monitor-topic",
-    "zookeeper.connect": "localhost:2181/kafka281",
+    "zookeeper.connect": "localhost:2181",
     "bootstrap.servers": "localhost:9092",
     "request.timeout.ms": 9000,
     "produce.record.delay.ms": 100,
     "topic-management.topicManagementEnabled": true,
     "topic-management.topicCreationEnabled": true,
-    "topic-management.replicationFactor" : 1,
-    "topic-management.partitionsToBrokersRatio" : 2.0,
-    "topic-management.rebalance.interval.ms" : 600000,
-    "topic-management.preferred.leader.election.check.interval.ms" : 300000,
-    "topic-management.topicFactory.props": {
-    },
+    "topic-management.replicationFactor": 1,
+    "topic-management.partitionsToBrokersRatio": 2,
+    "topic-management.rebalance.interval.ms": 600000,
+    "topic-management.preferred.leader.election.check.interval.ms": 300000,
+    "topic-management.topicFactory.props": {},
     "topic-management.topic.props": {
       "retention.ms": "3600000"
     },
     "produce.producer.props": {
       "client.id": "kmf-client-id"
     },
-
     "consume.latency.sla.ms": "20000",
-    "consume.consumer.props": {
-    }
+    "consume.consumer.props": {}
   }
 }
