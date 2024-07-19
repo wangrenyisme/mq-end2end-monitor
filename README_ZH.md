@@ -15,6 +15,16 @@ produce-delay-ms-avg 平均生产延迟
 ......
 ```
 
+# 进行中的开发工作
+
+-[x] 支持集群动态配置，避免集群增减变更需要重新打包镜像发版
+-[ ] 排查当前 E2E 延迟毛刺原因
+-[ ] 支持 Kafka & Pulsar 消息写入失败监控
+-[ ] 支持自动创建 topic 、分区数变化自动感知
+-[ ] 支持线程数动态可配
+-[ ] 接入私有集群
+
+
 # 运行
 ### Build Xinfra Monitor
 ```
@@ -53,3 +63,5 @@ java -javaagent:./jmx_prometheus_javaagent-1.0.1.jar=12345:config.yaml -jar your
 
 ### 方案2: Spring Boot 的 Actuator + Micrometer
 结合使用 Spring Boot 的 Actuator 模块和 Micrometer 库，因为 Micrometer 提供了将 JMX 指标转换为 Prometheus 或其他监控系统可读格式的功能
+
+
