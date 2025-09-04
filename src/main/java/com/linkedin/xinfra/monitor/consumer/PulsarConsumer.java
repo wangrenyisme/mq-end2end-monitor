@@ -13,13 +13,7 @@ import com.linkedin.xinfra.monitor.services.configs.PulsarServiceConfig;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.OffsetCommitCallback;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.pulsar.client.api.Consumer;
-import org.apache.pulsar.client.api.PulsarClient;
-import org.apache.pulsar.client.api.Message;
-import org.apache.pulsar.client.api.PulsarClientException;
-import org.apache.pulsar.client.api.Schema;
-import org.apache.pulsar.client.api.AuthenticationFactory;
-import org.apache.pulsar.client.api.SubscriptionType;
+import org.apache.pulsar.client.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,15 +31,18 @@ public class PulsarConsumer implements KMBaseConsumer {
   private final PulsarClient _client;
   private Message<String> _message;
 
-  public PulsarConsumer(String topic, Properties consumerProperties) {
-    try {
-      LOG.info("{} is being instantiated in the constructor..", this.getClass().getSimpleName());
-      _client = PulsarClient.builder().serviceUrl(consumerProperties.getProperty(PulsarServiceConfig.SERVICE_URL)).authentication(AuthenticationFactory.token(consumerProperties.getProperty(PulsarServiceConfig.TOKEN))).build();
-      _consumer = _client.newConsumer(Schema.STRING).topic(topic).subscriptionName(consumerProperties.getProperty(PulsarServiceConfig.SUBSCRIPTION_NAME)).subscriptionType(SubscriptionType.Exclusive).subscribe();
-    } catch (PulsarClientException e) {
-      LOG.error(e.getMessage(), e);
-      throw new RuntimeException(e);
+  public PulsarConsumer(String topic, Properties consumerProperties) throws Exception {
+    LOG.info("{} is being instantiated in the constructor..", this.getClass().getSimpleName());
+    ClientBuilder clientBuilder = PulsarClient.builder().serviceUrl(consumerProperties.getProperty(PulsarServiceConfig.SERVICE_URL));
+    String authPlugin = consumerProperties.getProperty(PulsarServiceConfig.AUTH_PLUGIN);
+    String authData = consumerProperties.getProperty(PulsarServiceConfig.AUTH_DATA);
+    if (authPlugin != null && !authPlugin.isEmpty()) {
+      clientBuilder.authentication(authPlugin, authData);
     }
+    _client = clientBuilder.build();
+    _consumer = _client.newConsumer(Schema.STRING).topic(topic)
+        .subscriptionName(consumerProperties.getProperty(PulsarServiceConfig.SUBSCRIPTION_NAME))
+        .subscriptionType(SubscriptionType.Failover).subscribe();
   }
 
   @Override

@@ -38,6 +38,7 @@ allprojects {
     compile 'com.linkedin.avroutil1:helper-all:0.2.118'
     compile 'org.apache.zookeeper:zookeeper:3.8.0'
     compile 'org.apache.pulsar:pulsar-client-all:3.0.3'
+    compile 'com.alibaba.nacos:nacos-client:2.2.1'
     testCompile 'org.mockito:mockito-core:2.24.0'
     testCompile 'org.testng:testng:6.8.8'
   }
@@ -57,12 +58,12 @@ allprojects {
       manifest {
         // embed version information into jar manifests
         attributes('Name': "${project.name}",
-            'Specification-Title': "${project.name}",
-            'Specification-Version': "${project.version}",
-            'Specification-Vendor': "LinkedIn",
-            'Implementation-Title': "${project.name}",
-            'Implementation-Version': "${project.version}",
-            'Implementation-Vendor': "LinkedIn")
+                'Specification-Title': "${project.name}",
+                'Specification-Version': "${project.version}",
+                'Specification-Vendor': "LinkedIn",
+                'Implementation-Title': "${project.name}",
+                'Implementation-Version': "${project.version}",
+                'Implementation-Vendor': "LinkedIn")
       }
     }
 

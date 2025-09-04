@@ -10,22 +10,14 @@
 
 package com.linkedin.xinfra.monitor;
 
+import com.alibaba.nacos.api.NacosFactory;
+import com.alibaba.nacos.api.PropertyKeyConst;
+import com.alibaba.nacos.api.config.ConfigService;
+import com.alibaba.nacos.api.config.listener.Listener;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.xinfra.monitor.apps.App;
 import com.linkedin.xinfra.monitor.services.Service;
 import com.linkedin.xinfra.monitor.services.ServiceFactory;
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.lang.reflect.Constructor;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -33,6 +25,15 @@ import org.apache.kafka.common.metrics.MetricsReporter;
 import org.apache.kafka.common.utils.SystemTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * This is the main entry point of the monitor.  It reads the configuration and manages the life cycle of the monitoring
@@ -77,9 +78,7 @@ public class XinfraMonitor {
         //一个集群对应一个App
         _apps.put(clusterName, clusterApp);
       } else if (Service.class.isAssignableFrom(aClass)) {
-        ServiceFactory serviceFactory = (ServiceFactory) Class.forName(className + XinfraMonitorConstants.FACTORY)
-            .getConstructor(Map.class, String.class)
-            .newInstance(props, clusterName);
+        ServiceFactory serviceFactory = (ServiceFactory) Class.forName(className + XinfraMonitorConstants.FACTORY).getConstructor(Map.class, String.class).newInstance(props, clusterName);
         Service service = serviceFactory.createService();
         //一个service多个集群共用，如：com.linkedin.kmf.services.DefaultMetricsReporterService
         _services.put(clusterName, service);
@@ -92,27 +91,102 @@ public class XinfraMonitor {
     List<MetricsReporter> reporters = new ArrayList<>();
     reporters.add(new JmxReporter(XinfraMonitorConstants.JMX_PREFIX));
     Metrics metrics = new Metrics(new MetricConfig(), reporters, new SystemTime());
-    metrics.addMetric(metrics.metricName("offline-runnable-count", XinfraMonitorConstants.METRIC_GROUP_NAME, "The number of Service/App that are not fully running"),
-      (config, now) -> _offlineRunnables.size());
+    metrics.addMetric(metrics.metricName("offline-runnable-count", XinfraMonitorConstants.METRIC_GROUP_NAME, "The number of Service/App that are not fully running"), (config, now) -> _offlineRunnables.size());
+  }
+  private static volatile XinfraMonitor xinfraMonitor = null;
+
+  @SuppressWarnings("rawtypes")
+  public static void main(String[] args) throws Exception {
+    if (args.length == 6) {
+      startByNacos(args);
+    } else {
+      startByConfigFile(args);
+    }
   }
 
-  private boolean constructorContainsClass(Constructor<?>[] constructors, Class<?> classObject) {
-    for (int n = 0; n < constructors[0].getParameterTypes().length; ++n) {
-      if (constructors[0].getParameterTypes()[n].equals(classObject)) {
-        return true;
+  private static void startByNacos(String[] args) throws Exception {
+    final ExecutorService EXECUTOR_SERVICE = Executors.newSingleThreadExecutor();
+    final String serverAddr = args[0];
+    final String namespace = args[1];
+    final String username = args[2];
+    final String password = args[3];
+    final String dataId = args[4];
+    final String group = args[5];
+    Properties properties = new Properties();
+    properties.put(PropertyKeyConst.SERVER_ADDR, serverAddr);
+    properties.put(PropertyKeyConst.NAMESPACE, namespace);
+    properties.put(PropertyKeyConst.USERNAME, username);
+    properties.put(PropertyKeyConst.PASSWORD, password);
+    try {
+      final ConfigService configService = NacosFactory.createConfigService(properties);
+      Map<String, Map> props = new ObjectMapper().readValue(configService.getConfig(dataId, group, 1000L), Map.class);
+      xinfraMonitor = new XinfraMonitor(props);
+      xinfraMonitor.start();
+      configService.addListener(dataId, group, new Listener() {
+        @Override
+        public Executor getExecutor() {
+          return EXECUTOR_SERVICE;
+        }
+
+        @Override
+        public void receiveConfigInfo(String s) {
+          LOG.info("[{}] 配置变更", Thread.currentThread().getName());
+          try {
+            EXECUTOR_SERVICE.submit(() -> {
+              try {
+                Map<String, Map> newProps = new ObjectMapper().readValue(s, Map.class);
+                if (xinfraMonitor != null) {
+                  xinfraMonitor.stop();
+                }
+                xinfraMonitor = new XinfraMonitor(newProps);
+                xinfraMonitor.start();
+                LOG.info("Xinfra Monitor has started.");
+              } catch (Exception e) {
+                LOG.error(e.getMessage(), e);
+              }
+            });
+          } catch (Exception e) {
+            LOG.error(e.getMessage(), e);
+            throw new RuntimeException(e);
+          }
+        }
+      });
+    } catch (Exception e) {
+      LOG.error(e.getMessage(), e);
+    }
+    xinfraMonitor.awaitShutdown();
+  }
+
+  private static void startByConfigFile(String[] args) throws Exception {
+    if (args.length <= 0) {
+      LOG.info("USAGE: java [options] " + XinfraMonitor.class.getName() + " config/xinfra-monitor.properties");
+      return;
+    }
+
+    StringBuilder buffer = new StringBuilder();
+    try (BufferedReader br = new BufferedReader(new FileReader(args[0].trim()))) {
+      String line;
+      while ((line = br.readLine()) != null) {
+        if (!line.startsWith("#")) buffer.append(line);
       }
     }
-    return false;
+
+    @SuppressWarnings("unchecked") Map<String, Map> props = new ObjectMapper().readValue(buffer.toString(), Map.class);
+    XinfraMonitor xinfraMonitor = new XinfraMonitor(props);
+    xinfraMonitor.start();
+    LOG.info("Xinfra Monitor has started.");
+
+    xinfraMonitor.awaitShutdown();
   }
 
   public synchronized void start() throws Exception {
     if (!_isRunning.compareAndSet(false, true)) {
       return;
     }
-    for (Map.Entry<String, App> entry: _apps.entrySet()) {
+    for (Map.Entry<String, App> entry : _apps.entrySet()) {
       entry.getValue().start();
     }
-    for (Map.Entry<String, Service> entry: _services.entrySet()) {
+    for (Map.Entry<String, Service> entry : _services.entrySet()) {
       entry.getValue().start();
     }
 
@@ -125,26 +199,21 @@ public class XinfraMonitor {
       } catch (Exception e) {
         LOG.error("Failed to check health of apps and services", e);
       }
-    }, initialDelaySecond, periodSecond, TimeUnit.SECONDS
-    );
+    }, initialDelaySecond, periodSecond, TimeUnit.SECONDS);
   }
 
   private void checkHealth() {
-    for (Map.Entry<String, App> entry: _apps.entrySet()) {
-      if (!entry.getValue().isRunning())
-        _offlineRunnables.putIfAbsent(entry.getKey(), entry.getValue());
+    for (Map.Entry<String, App> entry : _apps.entrySet()) {
+      if (!entry.getValue().isRunning()) _offlineRunnables.putIfAbsent(entry.getKey(), entry.getValue());
     }
 
-    for (Map.Entry<String, Service> entry: _services.entrySet()) {
-      if (!entry.getValue().isRunning())
-        _offlineRunnables.putIfAbsent(entry.getKey(), entry.getValue());
+    for (Map.Entry<String, Service> entry : _services.entrySet()) {
+      if (!entry.getValue().isRunning()) _offlineRunnables.putIfAbsent(entry.getKey(), entry.getValue());
     }
 
-    for (Map.Entry<String, Object> entry: _offlineRunnables.entrySet()) {
-      if (entry.getValue() instanceof App)
-        LOG.error("App " + entry.getKey() + " is not fully running.");
-      else
-        LOG.error("Service " + entry.getKey() + " is not fully running.");
+    for (Map.Entry<String, Object> entry : _offlineRunnables.entrySet()) {
+      if (entry.getValue() instanceof App) LOG.error("App " + entry.getKey() + " is not fully running.");
+      else LOG.error("Service " + entry.getKey() + " is not fully running.");
     }
 
   }
@@ -154,42 +223,17 @@ public class XinfraMonitor {
       return;
     }
     _executor.shutdownNow();
-    for (App app: _apps.values())
+    for (App app : _apps.values())
       app.stop();
-    for (Service service: _services.values())
+    for (Service service : _services.values())
       service.stop();
   }
 
   public void awaitShutdown() {
-    for (App app: _apps.values())
+    for (App app : _apps.values())
       app.awaitShutdown();
-    for (Service service: _services.values())
+    for (Service service : _services.values())
       service.awaitShutdown(Integer.MAX_VALUE, TimeUnit.MILLISECONDS);
-  }
-
-  @SuppressWarnings("rawtypes")
-  public static void main(String[] args) throws Exception {
-    if (args.length <= 0) {
-      LOG.info("USAGE: java [options] " + XinfraMonitor.class.getName() + " config/xinfra-monitor.properties");
-      return;
-    }
-
-    StringBuilder buffer = new StringBuilder();
-    try (BufferedReader br = new BufferedReader(new FileReader(args[0].trim()))) {
-      String line;
-      while ((line = br.readLine()) != null) {
-        if (!line.startsWith("#"))
-          buffer.append(line);
-      }
-    }
-
-    @SuppressWarnings("unchecked")
-    Map<String, Map> props = new ObjectMapper().readValue(buffer.toString(), Map.class);
-    XinfraMonitor xinfraMonitor = new XinfraMonitor(props);
-    xinfraMonitor.start();
-    LOG.info("Xinfra Monitor has started.");
-
-    xinfraMonitor.awaitShutdown();
   }
 
 }

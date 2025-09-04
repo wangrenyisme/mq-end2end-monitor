@@ -12,8 +12,8 @@ package com.linkedin.xinfra.monitor.services.pulsar;
 import com.linkedin.xinfra.monitor.common.Utils;
 import com.linkedin.xinfra.monitor.producer.BaseProducerRecord;
 import com.linkedin.xinfra.monitor.producer.KMBaseProducer;
-import com.linkedin.xinfra.monitor.producer.PulsarProducer;
-import com.linkedin.xinfra.monitor.services.AbstractService;
+import com.linkedin.xinfra.monitor.producer.PulsarProducerHandler;
+import com.linkedin.xinfra.monitor.services.Service;
 import com.linkedin.xinfra.monitor.services.configs.PulsarServiceConfig;
 import com.linkedin.xinfra.monitor.services.metrics.ProduceMetrics;
 import org.apache.kafka.clients.producer.RecordMetadata;
@@ -22,53 +22,33 @@ import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.MetricsReporter;
 import org.apache.kafka.common.utils.SystemTime;
-import org.apache.pulsar.client.admin.PulsarAdmin;
-import org.apache.pulsar.client.admin.PulsarAdminBuilder;
-import org.apache.pulsar.client.admin.PulsarAdminException;
-import org.apache.pulsar.client.admin.Topics;
-import org.apache.pulsar.client.api.AuthenticationFactory;
-import org.apache.pulsar.client.api.PulsarClientException;
-import org.apache.pulsar.common.partition.PartitionedTopicMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
-import java.util.Map;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.HashMap;
-import java.util.Properties;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class PulsarProduceService extends AbstractService {
+public class PulsarProduceService implements Service {
   private static final Logger LOG = LoggerFactory.getLogger(PulsarProduceService.class);
   private final String _name;
   private final ProduceMetrics _sensors;
-  private final int _produceDelayMs = 1000;
-  private final boolean _sync = true;
+  private final int _produceDelayMs;
   private final AtomicBoolean _running;
-  private final int _recordSize = 30;
   private final String _topic;
-  private final String _producerId = "default";
   private final ScheduledExecutorService _produceExecutor;
-  private final int _partitionNum;
   private final Properties _producerProps;
-  private KMBaseProducer _producer;
+  private final KMBaseProducer _producer;
+  private final int _partitionNum;
 
-  public PulsarProduceService(Map<String, Object> props, String name) throws Exception {
-    super(10, Duration.ofMinutes(1));
+  public PulsarProduceService(Map<String, Object> props, CompletableFuture<Integer> partitionNum, String name) throws Exception {
     _name = name;
     _running = new AtomicBoolean(false);
     _topic = (String) props.get(PulsarServiceConfig.TOPIC);
     _producerProps = new Properties();
     _producerProps.putAll(props);
-    _partitionNum = getTopicPartitionNums();
-    initializeProducer();
+    _produceDelayMs = Integer.parseInt(_producerProps.getProperty(PulsarServiceConfig.PRODUCE_RECORD_DELAY_MS, "1000"));
     _produceExecutor = Executors.newScheduledThreadPool(5, new ProduceServiceThreadFactory());
     MetricConfig metricConfig = new MetricConfig().samples(60).timeWindow(1000, TimeUnit.MILLISECONDS);
     List<MetricsReporter> reporters = new ArrayList<>();
@@ -77,24 +57,14 @@ public class PulsarProduceService extends AbstractService {
     Map<String, String> tags = new HashMap<>();
     tags.put("name", _name);
     _sensors = new ProduceMetrics(metrics, tags, 1, 5000, new AtomicInteger(0), false);
+    try {
+      this._partitionNum = partitionNum.get();
+    } catch (Exception e) {
+      throw new RuntimeException(e.getCause());
+    }
+    _producer = new PulsarProducerHandler(_producerProps, _partitionNum);
   }
 
-  private int getTopicPartitionNums() throws PulsarClientException, PulsarAdminException {
-    PulsarAdminBuilder pulsarAdminBuilder = PulsarAdmin.builder().serviceHttpUrl(_producerProps.getProperty(PulsarServiceConfig.HTTP_URL)).authentication(AuthenticationFactory.token(_producerProps.getProperty(PulsarServiceConfig.TOKEN)));
-    PulsarAdmin pulsarAdmin = pulsarAdminBuilder.build();
-    Topics topicsClient = pulsarAdmin.topics();
-    PartitionedTopicMetadata partitionedTopicMetadata = topicsClient.getPartitionedTopicMetadata(_topic);
-    pulsarAdmin.close();
-    int partitions = partitionedTopicMetadata.partitions;
-    LOG.debug("{}/get topic partitions.", partitions);
-    return partitions;
-
-  }
-
-  private void initializeProducer() throws Exception {
-    _producer = new PulsarProducer(_producerProps, _partitionNum);
-    LOG.info("{}/ProduceService is initialized.", _name);
-  }
 
   @Override
   public synchronized void start() {
@@ -102,7 +72,7 @@ public class PulsarProduceService extends AbstractService {
       for (int i = 0; i < _partitionNum; i++) {
         _produceExecutor.scheduleWithFixedDelay(new ProduceRunnable(i, null), _produceDelayMs, _produceDelayMs, TimeUnit.MILLISECONDS);
       }
-      LOG.info("{}/ProduceService started", _name);
+      LOG.info("{}/ProduceService started with produce rate {}ms", _name, _produceDelayMs);
     }
   }
 
@@ -146,14 +116,18 @@ public class PulsarProduceService extends AbstractService {
     public void run() {
       try {
         long currMs = System.currentTimeMillis();
+        int _recordSize = 30;
+        String _producerId = "default";
         String message = Utils.jsonFromFields(_topic, 0, currMs, _producerId, _recordSize);
         BaseProducerRecord record = new BaseProducerRecord(_topic, _partition, _key, message);
-//                LOG.info("send message: {}",message);
+        boolean _sync = true;
         RecordMetadata metadata = _producer.send(record, _sync);
         _sensors._produceDelay.record(System.currentTimeMillis() - currMs);
         _sensors._recordsProduced.record();
+        _sensors._produceErrorInLastSendPerPartition.put(_partition, false);
       } catch (Exception e) {
         _sensors._produceError.record();
+        _sensors._produceErrorInLastSendPerPartition.put(_partition, true);
         LOG.warn(_name + " failed to send message", e);
       }
     }
@@ -167,11 +141,4 @@ public class PulsarProduceService extends AbstractService {
       return new Thread(r, _name + "-produce-service-" + _threadId.getAndIncrement());
     }
   }
-
-  private class HandleNewPartitionsThreadFactory implements ThreadFactory {
-    public Thread newThread(Runnable r) {
-      return new Thread(r, _name + "-produce-service-new-partition-handler");
-    }
-  }
-
 }
