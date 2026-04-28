@@ -1,4 +1,45 @@
 {
+  "MetadataSyncTask": {
+    "class.name": "com.linkedin.xinfra.monitor.apps.ClusterGroupMetadataSyncTask",
+
+    "cluster-groups": {
+      "cluster-group01": {
+        "_comment": "Example: main-cluster has ACL (SASL_PLAINTEXT), backup-cluster is plain. ACL sync is skipped because not ALL clusters have ACL enabled.",
+        "main-cluster": {
+          "bootstrap.servers": "localhost:9092",
+          "security.protocol": "SASL_PLAINTEXT",
+          "sasl.mechanism": "SCRAM-SHA-256",
+          "sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username='your_username' password='your_password';"
+        },
+        "backup-cluster": {
+          "bootstrap.servers": "localhost:9093"
+        }
+      },
+      "cluster-group02": {
+        "_comment": "Example: both clusters have ACL enabled — topic metadata AND ACLs will be synced bidirectionally.",
+        "primary-cluster": {
+          "bootstrap.servers": "primary-host:9092",
+          "security.protocol": "SASL_PLAINTEXT",
+          "sasl.mechanism": "SCRAM-SHA-256",
+          "sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username='admin' password='admin-secret';"
+        },
+        "standby-cluster": {
+          "bootstrap.servers": "standby-host:9092",
+          "security.protocol": "SASL_PLAINTEXT",
+          "sasl.mechanism": "SCRAM-SHA-256",
+          "sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username='admin' password='admin-secret';"
+        }
+      }
+    },
+
+    "sync.interval.seconds": 60,
+
+    "excluded.topics": "__consumer_offsets,__transaction_state",
+
+    "max.replication.factor": 3,
+
+    "request.timeout.ms": 30000
+  },
   "kafka-cluster-a": {
     "class.name": "com.linkedin.xinfra.monitor.apps.SingleClusterMonitor",
     "topic": "xinfra-monitor-topic",
