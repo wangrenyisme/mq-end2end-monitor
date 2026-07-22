@@ -9,6 +9,7 @@
  */
 package com.linkedin.xinfra.monitor.services.pulsar;
 
+import com.google.common.util.concurrent.RateLimiter;
 import com.linkedin.xinfra.monitor.common.Utils;
 import com.linkedin.xinfra.monitor.producer.BaseProducerRecord;
 import com.linkedin.xinfra.monitor.producer.KMBaseProducer;
@@ -16,7 +17,6 @@ import com.linkedin.xinfra.monitor.producer.PulsarProducerHandler;
 import com.linkedin.xinfra.monitor.services.Service;
 import com.linkedin.xinfra.monitor.services.configs.PulsarServiceConfig;
 import com.linkedin.xinfra.monitor.services.metrics.ProduceMetrics;
-import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -29,6 +29,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class PulsarProduceService implements Service {
   private static final Logger LOG = LoggerFactory.getLogger(PulsarProduceService.class);
@@ -38,6 +39,9 @@ public class PulsarProduceService implements Service {
   private final AtomicBoolean _running;
   private final String _topic;
   private final ScheduledExecutorService _produceExecutor;
+  /** This can be updated while running when new partitions are added to the monitor topic. */
+  private final ConcurrentMap<Integer, AtomicLong> _nextIndexPerPartition;
+  private final boolean _sync;
   private final Properties _producerProps;
   private final KMBaseProducer _producer;
   private final int _partitionNum;
@@ -50,6 +54,8 @@ public class PulsarProduceService implements Service {
     _producerProps.putAll(props);
     _produceDelayMs = Integer.parseInt(_producerProps.getProperty(PulsarServiceConfig.PRODUCE_RECORD_DELAY_MS, "1000"));
     _produceExecutor = Executors.newScheduledThreadPool(5, new ProduceServiceThreadFactory());
+    _nextIndexPerPartition = new ConcurrentHashMap<>();
+    _sync = (boolean) props.getOrDefault(PulsarServiceConfig.PRODUCE_SYNC_CONFIG, false);
     MetricConfig metricConfig = new MetricConfig().samples(60).timeWindow(1000, TimeUnit.MILLISECONDS);
     List<MetricsReporter> reporters = new ArrayList<>();
     reporters.add(new JmxReporter(JMX_PREFIX));
@@ -115,13 +121,14 @@ public class PulsarProduceService implements Service {
 
     public void run() {
       try {
+        AtomicLong indexAdder = _nextIndexPerPartition.computeIfAbsent(_partition, k -> new AtomicLong(0));
+        long index = indexAdder.incrementAndGet();
         long currMs = System.currentTimeMillis();
         int _recordSize = 30;
         String _producerId = "default";
-        String message = Utils.jsonFromFields(_topic, 0, currMs, _producerId, _recordSize);
+        String message = Utils.jsonFromFields(_topic, index, currMs, _producerId, _recordSize);
         BaseProducerRecord record = new BaseProducerRecord(_topic, _partition, _key, message);
-        boolean _sync = true;
-        RecordMetadata metadata = _producer.send(record, _sync);
+        _producer.send(record, _sync);
         _sensors._produceDelay.record(System.currentTimeMillis() - currMs);
         _sensors._recordsProduced.record();
         _sensors._produceErrorInLastSendPerPartition.put(_partition, false);
