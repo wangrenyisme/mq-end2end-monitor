@@ -9,7 +9,6 @@
  */
 package com.linkedin.xinfra.monitor.services.pulsar;
 
-import com.google.common.util.concurrent.RateLimiter;
 import com.linkedin.xinfra.monitor.common.Utils;
 import com.linkedin.xinfra.monitor.producer.BaseProducerRecord;
 import com.linkedin.xinfra.monitor.producer.KMBaseProducer;
@@ -24,9 +23,11 @@ import org.apache.kafka.common.metrics.MetricsReporter;
 import org.apache.kafka.common.utils.SystemTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Int;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -35,10 +36,11 @@ public class PulsarProduceService implements Service {
   private static final Logger LOG = LoggerFactory.getLogger(PulsarProduceService.class);
   private final String _name;
   private final ProduceMetrics _sensors;
-  private final int _produceDelayMs;
+  private final Integer _produceDelayMs;
+  private final Integer _produceRatePerSec;
   private final AtomicBoolean _running;
   private final String _topic;
-  private final ScheduledExecutorService _produceExecutor;
+  private final ExecutorService _produceExecutor;
   /** This can be updated while running when new partitions are added to the monitor topic. */
   private final ConcurrentMap<Integer, AtomicLong> _nextIndexPerPartition;
   private final boolean _sync;
@@ -52,8 +54,10 @@ public class PulsarProduceService implements Service {
     _topic = (String) props.get(PulsarServiceConfig.TOPIC);
     _producerProps = new Properties();
     _producerProps.putAll(props);
-    _produceDelayMs = Integer.parseInt(_producerProps.getProperty(PulsarServiceConfig.PRODUCE_RECORD_DELAY_MS, "1000"));
-    _produceExecutor = Executors.newScheduledThreadPool(5, new ProduceServiceThreadFactory());
+    _produceDelayMs = (Integer) _producerProps.getOrDefault(PulsarServiceConfig.PRODUCE_RECORD_DELAY_MS, 1000);
+    _produceRatePerSec = _producerProps.get(PulsarServiceConfig.PRODUCE_RATE_PER_SEC) == null ?
+        1000 / _produceDelayMs : (Integer) _producerProps.get(PulsarServiceConfig.PRODUCE_RATE_PER_SEC);
+    _produceExecutor = Executors.newVirtualThreadPerTaskExecutor();
     _nextIndexPerPartition = new ConcurrentHashMap<>();
     _sync = (boolean) props.getOrDefault(PulsarServiceConfig.PRODUCE_SYNC_CONFIG, false);
     MetricConfig metricConfig = new MetricConfig().samples(60).timeWindow(1000, TimeUnit.MILLISECONDS);
@@ -75,10 +79,32 @@ public class PulsarProduceService implements Service {
   @Override
   public synchronized void start() {
     if (_running.compareAndSet(false, true)) {
+      // 每分区一条虚拟线程，各自以 _produceRatePerSec 条/秒的固定节奏发送。
+      // 采用 LockSupport.parkNanos 而非阻塞式 RateLimiter：虚拟线程在 park 时会优雅 unmount 载体线程，
+      // 零 pinning，真正契合虚拟线程模型。
+      final long intervalNanos = _produceRatePerSec > 0 ? TimeUnit.SECONDS.toNanos(1) / _produceRatePerSec : 0L;
       for (int i = 0; i < _partitionNum; i++) {
-        _produceExecutor.scheduleWithFixedDelay(new ProduceRunnable(i, null), _produceDelayMs, _produceDelayMs, TimeUnit.MILLISECONDS);
+        int partition = i;
+        _produceExecutor.submit(() -> {
+          // 以“下一节拍时间戳”驱动，避免每次发送耗时累积造成的速率漂移。
+          long nextTickNanos = System.nanoTime();
+          while (_running.get()) {
+            new ProduceRunnable(partition, null).run();
+            if (intervalNanos > 0) {
+              nextTickNanos += intervalNanos;
+              long sleepNanos = nextTickNanos - System.nanoTime();
+              if (sleepNanos > 0) {
+                LockSupport.parkNanos(sleepNanos);
+              } else {
+                // 已落后于目标节拍（如 send 耗时超过间隔），重置基准，不做补偿式追赶。
+                nextTickNanos = System.nanoTime();
+              }
+            }
+          }
+        });
       }
-      LOG.info("{}/ProduceService started with produce rate {}ms", _name, _produceDelayMs);
+      LOG.info("{}/ProduceService started with produce rate {} records/sec per partition ({} partitions)",
+          _name, _produceRatePerSec, _partitionNum);
     }
   }
 
