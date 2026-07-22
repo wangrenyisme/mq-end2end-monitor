@@ -112,11 +112,10 @@ public class PulsarConsumerService implements Service {
 
           long nextIndex = nextIndexes.get(partition);
 
-          if (nextIndex == -1 || index == nextIndex) {
+          if (nextIndex == -1 || index == nextIndex || index <= 1) {
             nextIndexes.put(partition, index + 1);
-
           } else if (index < nextIndex) {
-            _sensors._recordsDuplicated.record();
+              _sensors._recordsDuplicated.record();
           } else { // this will equate to the case where index > nextIndex...
             nextIndexes.put(partition, index + 1);
             long numLostRecords = index - nextIndex;
