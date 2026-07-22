@@ -32,7 +32,9 @@ public class PulsarServiceConfig {
 
     // Producer config
     public static final String PRODUCE_RECORD_DELAY_MS = "produce.record.delay.ms";
+    public static final String PRODUCE_RATE_PER_SEC = "produce.record.rate.sec";
     public static final String PRODUCE_CONSUMER_PROPS = "produce.producer.props";
+    public static final String PRODUCE_SYNC_CONFIG = "produce.sync";
 
     // Consumer config
     public static final String CONSUME_LATENCY_SLA_MS = "consume.latency.sla.ms";

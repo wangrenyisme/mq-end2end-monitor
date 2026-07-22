@@ -56,14 +56,15 @@ public class PulsarProducerHandler implements KMBaseProducer {
   @Override
   public RecordMetadata send(BaseProducerRecord baseRecord, boolean sync) throws Exception {
     TypedMessageBuilder<String> message = _producers[baseRecord.partition()].newMessage().key(baseRecord.key()).value(baseRecord.value());
-    MessageId messageId;
     if (sync) {
-      messageId = message.send();
+      message.send();
     } else {
-      message.sendAsync();
-      messageId = null;  // Assuming async send does not return MessageId immediately
+      message.sendAsync().whenComplete(((messageId, throwable) -> {
+        if (throwable != null) {
+          throw new RuntimeException(throwable);
+        }
+      }));
     }
-
     return null;
   }
 

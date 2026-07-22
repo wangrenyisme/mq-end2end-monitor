@@ -1,0 +1,34 @@
+{
+  "pulsar-serverless-sh": {
+    "class.name": "com.linkedin.xinfra.monitor.apps.SinglePulsarClusterMonitor",
+    "topic": "persistent://public/default/test2",
+    "service.url": "pulsar://localhost:6650",
+    "http.url": "http://localhost:8080",
+    "produce.record.delay.ms": 100,
+    "produce.record.rate.sec": 100000,
+    "produce.sync": false,
+    "subscription.name": "end2endMonitorGroup",
+    "topic-management.topicManagementEnabled": true,
+    "topic-management.topicCreationEnabled": true,
+    "topic-management.topicType": "persistent",
+    "topic-management.persistence.ensembleSize": 2,
+    "topic-management.persistence.writeQuorum": 2,
+    "topic-management.persistence.ackQuorum": 2,
+    "topic-management.partitions": 100,
+    "topic-management.partitionsToBrokersRatio": 2.0,
+    "topic-management.topicFactory.props": {
+    },
+    "produce.producer.props": {
+      "enableBatch": false,
+      "batchingMaxPublishDelayMs": 2,
+      "batchingMaxBytes": 102400,
+      "blockIfQueueFull": true,
+      "maxPendingMessages": 100000,
+      "sendTimeoutMs": 30000
+    },
+    "consume.latency.sla.ms": 20000,
+    "consume.consumer.props": {
+      "receiverQueueSize": 10000
+    }
+  }
+}

@@ -13,10 +13,18 @@ import com.linkedin.xinfra.monitor.services.configs.PulsarServiceConfig;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.OffsetCommitCallback;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.pulsar.client.api.*;
+import org.apache.pulsar.client.api.Consumer;
+import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
+import org.apache.pulsar.client.api.AuthenticationFactory;
+import org.apache.pulsar.client.api.SubscriptionType;
+import org.apache.pulsar.client.api.ClientBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
@@ -30,6 +38,8 @@ public class PulsarConsumer implements KMBaseConsumer {
   private final Consumer<String> _consumer;
   private final PulsarClient _client;
   private Message<String> _message;
+  private final Map<String,Integer> partitionMap = new HashMap<>();
+
 
   public PulsarConsumer(String topic, Properties consumerProperties) throws Exception {
     LOG.info("{} is being instantiated in the constructor..", this.getClass().getSimpleName());
@@ -49,10 +59,25 @@ public class PulsarConsumer implements KMBaseConsumer {
   public BaseConsumerRecord receive() throws Exception {
     try {
       _message = _consumer.receive();
-      return new BaseConsumerRecord(_message.getTopicName(), 0, 0, _message.getKey(), _message.getValue());
+      return new BaseConsumerRecord(_message.getTopicName(), getPartitionIndex(_message.getTopicName()), 0, _message.getKey(), _message.getValue());
     } catch (PulsarClientException e) {
       throw new Exception(e);
     }
+  }
+
+  private Integer getPartitionIndex(String topicPartitionName){
+    Integer i = partitionMap.get(topicPartitionName);
+    if(i == null){
+      String[] split = topicPartitionName.split("-");
+      try{
+        i = Integer.parseInt(split[split.length-1]);
+      }catch (Exception e){
+        //ignore
+        i = 0;
+      }
+      partitionMap.put(topicPartitionName, i);
+    }
+    return i;
   }
 
   @Override

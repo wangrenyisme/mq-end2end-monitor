@@ -89,18 +89,40 @@ public class PulsarConsumerService implements Service {
   class ConsumerHandler implements Runnable {
     @Override
     public void run() {
+      Map<Integer, Long> nextIndexes = new HashMap<>();
+
       while (_running.get()) {
         BaseConsumerRecord record = null;
         try {
           record = _consumer.receive();
           GenericRecord genericRecord = Utils.genericRecordFromJson(record.value());
           long prevMs = (long) genericRecord.get(DefaultTopicSchema.TIME_FIELD.name());
+          long index = (long) genericRecord.get(DefaultTopicSchema.INDEX_FIELD.name());
+          int partition = record.partition();
           long currMs = System.currentTimeMillis();
           _consumer.commitAsync();
           _sensors._recordsDelay.record(currMs - prevMs);
           _sensors._recordsConsumed.record();
           _sensors._bytesConsumed.record(record.value().length());
           if (currMs - prevMs > _latencySlaMs) _sensors._recordsDelayed.record();
+          if (index == -1L || !nextIndexes.containsKey(partition)) {
+            nextIndexes.put(partition, -1L);
+            continue;
+          }
+
+          long nextIndex = nextIndexes.get(partition);
+
+          if (nextIndex == -1 || index == nextIndex) {
+            nextIndexes.put(partition, index + 1);
+
+          } else if (index < nextIndex) {
+            _sensors._recordsDuplicated.record();
+          } else { // this will equate to the case where index > nextIndex...
+            nextIndexes.put(partition, index + 1);
+            long numLostRecords = index - nextIndex;
+            _sensors._recordsLost.record(numLostRecords);
+            LOG.info("_recordsLost recorded: Avro record current index: {} at timestamp {}. Next index: {}. Lost {} records.", index, currMs, nextIndex, numLostRecords);
+          }
         } catch (Exception e) {
           _sensors._consumeError.record();
           LOG.error(e.getMessage(), e);
