@@ -146,6 +146,10 @@ public class PulsarProduceService implements Service {
     }
 
     public void run() {
+      // Tracks whether the send callback already reported an error, so a synchronously-thrown
+      // exception below (sync rethrow / queue full) is not double-counted, while an exception raised
+      // BEFORE the callback runs (e.g. serialization) is still counted exactly once.
+      final boolean[] reportedByCallback = {false};
       try {
         AtomicLong indexAdder = _nextIndexPerPartition.computeIfAbsent(_partition, k -> new AtomicLong(0));
         long index = indexAdder.incrementAndGet();
@@ -154,13 +158,25 @@ public class PulsarProduceService implements Service {
         String _producerId = "default";
         String message = Utils.jsonFromFields(_topic, index, currMs, _producerId, _recordSize);
         BaseProducerRecord record = new BaseProducerRecord(_topic, _partition, _key, message);
-        _producer.send(record, _sync);
-        _sensors._produceDelay.record(System.currentTimeMillis() - currMs);
-        _sensors._recordsProduced.record();
-        _sensors._produceErrorInLastSendPerPartition.put(_partition, false);
+        _producer.send(record, _sync, exception -> {
+          if (exception != null) {
+            reportedByCallback[0] = true;
+            _sensors._produceError.record();
+            _sensors._produceErrorInLastSendPerPartition.put(_partition, true);
+            LOG.warn(_name + " failed to send message", exception);
+          } else {
+            _sensors._produceDelay.record(System.currentTimeMillis() - currMs);
+            _sensors._recordsProduced.record();
+            _sensors._produceErrorInLastSendPerPartition.put(_partition, false);
+          }
+        });
       } catch (Exception e) {
-        _sensors._produceError.record();
-        _sensors._produceErrorInLastSendPerPartition.put(_partition, true);
+        // Only record the metric if the callback did not already do so for this same failure,
+        // guaranteeing every failure is counted exactly once.
+        if (!reportedByCallback[0]) {
+          _sensors._produceError.record();
+          _sensors._produceErrorInLastSendPerPartition.put(_partition, true);
+        }
         LOG.warn(_name + " failed to send message", e);
       }
     }

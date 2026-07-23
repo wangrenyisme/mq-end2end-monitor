@@ -13,6 +13,8 @@ package com.linkedin.xinfra.monitor.producer;
 import com.linkedin.xinfra.monitor.services.configs.PulsarServiceConfig;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.pulsar.client.api.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.Properties;
@@ -20,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 public class PulsarProducerHandler implements KMBaseProducer {
 
+  private static final Logger LOG = LoggerFactory.getLogger(PulsarProducerHandler.class);
   private final PulsarClient _client;
   private final Producer<String>[] _producers;
   private final int _partitions;
@@ -35,7 +38,7 @@ public class PulsarProducerHandler implements KMBaseProducer {
     boolean enableBatch = (boolean) produceProps.getOrDefault("enableBatch", false);
     int batchingMaxPublishDelayMs = (int) produceProps.getOrDefault("batchingMaxPublishDelayMs", 2);
     int batchingMaxBytes = (int) produceProps.getOrDefault("batchingMaxBytes", 102400);
-    boolean blockIfQueueFull = (boolean) produceProps.getOrDefault("blockIfQueueFull", true);
+    boolean blockIfQueueFull = (boolean) produceProps.getOrDefault("blockIfQueueFull", false);
     int maxPendingMessages = (int) produceProps.getOrDefault("maxPendingMessages", 10);
     int sendTimeoutMs = (int) produceProps.getOrDefault("sendTimeoutMs", 500);
     ClientBuilder clientBuilder = PulsarClient.builder().serviceUrl(producerProps.getProperty(PulsarServiceConfig.SERVICE_URL));
@@ -55,15 +58,44 @@ public class PulsarProducerHandler implements KMBaseProducer {
 
   @Override
   public RecordMetadata send(BaseProducerRecord baseRecord, boolean sync) throws Exception {
+    return send(baseRecord, sync, null);
+  }
+
+  @Override
+  public RecordMetadata send(BaseProducerRecord baseRecord, boolean sync, ProduceCallback callback) throws Exception {
     TypedMessageBuilder<String> message = _producers[baseRecord.partition()].newMessage().key(baseRecord.key()).value(baseRecord.value());
     if (sync) {
-      message.send();
-    } else {
-      message.sendAsync().whenComplete(((messageId, throwable) -> {
-        if (throwable != null) {
-          throw new RuntimeException(throwable);
+      try {
+        message.send();
+        if (callback != null) {
+          callback.onCompletion(null);
         }
-      }));
+      } catch (Exception e) {
+        if (callback != null) {
+          callback.onCompletion(e);
+        }
+        throw e;
+      }
+    } else {
+      // Asynchronous send: report the outcome through the callback instead of throwing on the
+      // internal Pulsar thread, where the exception would otherwise be swallowed.
+      message.sendAsync().whenComplete((messageId, throwable) -> {
+        if (throwable == null) {
+          if (callback != null) {
+            callback.onCompletion(null);
+          }
+          return;
+        }
+        // sendAsync() always completes exceptionally with a PulsarClientException (an Exception);
+        // the Throwable->Exception adaptation exists only to satisfy the ProduceCallback signature
+        // and to guard against a raw Error surfacing here.
+        Exception ex = (throwable instanceof Exception) ? (Exception) throwable : new RuntimeException(throwable);
+        if (callback != null) {
+          callback.onCompletion(ex);
+        } else {
+          LOG.error("Async send failed and no callback was registered to report it", ex);
+        }
+      });
     }
     return null;
   }

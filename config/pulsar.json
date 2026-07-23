@@ -22,7 +22,7 @@
       "enableBatch": false,
       "batchingMaxPublishDelayMs": 2,
       "batchingMaxBytes": 102400,
-      "blockIfQueueFull": true,
+      "blockIfQueueFull": false,
       "maxPendingMessages": 100000,
       "sendTimeoutMs": 30000
     },

@@ -30,10 +30,37 @@ public class NewProducer implements KMBaseProducer {
 
   @Override
   public RecordMetadata send(BaseProducerRecord baseRecord, boolean sync) throws Exception {
+    return send(baseRecord, sync, null);
+  }
+
+  @Override
+  public RecordMetadata send(BaseProducerRecord baseRecord, boolean sync, ProduceCallback callback) throws Exception {
     ProducerRecord<String, String> record =
       new ProducerRecord<>(baseRecord.topic(), baseRecord.partition(), baseRecord.key(), baseRecord.value());
-    Future<RecordMetadata> future = _producer.send(record);
-    return sync ? future.get() : null;
+    if (sync) {
+      // Block for the broker ack; any failure surfaces here as an ExecutionException.
+      Future<RecordMetadata> future = _producer.send(record);
+      try {
+        RecordMetadata metadata = future.get();
+        if (callback != null) {
+          callback.onCompletion(null);
+        }
+        return metadata;
+      } catch (Exception e) {
+        if (callback != null) {
+          callback.onCompletion(e);
+        }
+        throw e;
+      }
+    }
+    // Asynchronous send: the callback runs on the producer's I/O thread and is the only place where
+    // a failure completing after this method returns can be observed.
+    _producer.send(record, (metadata, exception) -> {
+      if (callback != null) {
+        callback.onCompletion(exception);
+      }
+    });
+    return null;
   }
 
   @Override

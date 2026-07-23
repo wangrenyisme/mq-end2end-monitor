@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -58,7 +59,10 @@ public class PulsarConsumer implements KMBaseConsumer {
   @Override
   public BaseConsumerRecord receive() throws Exception {
     try {
-      _message = _consumer.receive();
+      _message = _consumer.receive(10, TimeUnit.SECONDS);
+      if (_message == null) {
+        return null;
+      }
       return new BaseConsumerRecord(_message.getTopicName(), getPartitionIndex(_message.getTopicName()), 0, _message.getKey(), _message.getValue());
     } catch (PulsarClientException e) {
       throw new Exception(e);

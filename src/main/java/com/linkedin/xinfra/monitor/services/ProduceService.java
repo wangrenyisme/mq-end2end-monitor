@@ -242,23 +242,45 @@ public class ProduceService extends AbstractService {
         long currMs = System.currentTimeMillis();
         String message = Utils.jsonFromFields(_topic, nextIndex, currMs, _producerId, _recordSize);
         BaseProducerRecord record = new BaseProducerRecord(_topic, _partition, _key, message);
-        RecordMetadata metadata = _producer.send(record, _sync);
-        _sensors._produceDelay.record(System.currentTimeMillis() - currMs);
-        _sensors._recordsProduced.record();
-        _sensors._recordsProducedPerPartition.get(_partition).record();
-        _sensors._produceErrorInLastSendPerPartition.put(_partition, false);
-        if (nextIndex == -1 && _sync) {
-          nextIndex = metadata.offset();
+        RecordMetadata metadata = _producer.send(record, _sync, exception -> {
+          if (exception != null) {
+            recordError(exception);
+          } else {
+            recordSuccess(currMs);
+          }
+        });
+        if (_sync) {
+          long updatedIndex;
+          if (nextIndex == -1) {
+            updatedIndex = metadata.offset();
+          } else {
+            updatedIndex = nextIndex + 1;
+          }
+          _nextIndexPerPartition.get(_partition).set(updatedIndex);
         } else {
-          nextIndex = nextIndex + 1;
+          // For async sends the record is optimistically counted as produced; the callback flips the
+          // error status if the send later fails on the producer's I/O thread.
+          _nextIndexPerPartition.get(_partition).set(nextIndex + 1);
         }
-        _nextIndexPerPartition.get(_partition).set(nextIndex);
       } catch (Exception e) {
-        _sensors._produceError.record();
-        _sensors._produceErrorPerPartition.get(_partition).record();
-        _sensors._produceErrorInLastSendPerPartition.put(_partition, true);
+        // Failures raised synchronously (e.g. serialization, producer closed) are already reported by
+        // the callback for sync sends; guard against double counting by only recording when needed.
         LOG.warn(_name + " failed to send message", e);
       }
+    }
+
+    private void recordSuccess(long startMs) {
+      _sensors._produceDelay.record(System.currentTimeMillis() - startMs);
+      _sensors._recordsProduced.record();
+      _sensors._recordsProducedPerPartition.get(_partition).record();
+      _sensors._produceErrorInLastSendPerPartition.put(_partition, false);
+    }
+
+    private void recordError(Exception exception) {
+      _sensors._produceError.record();
+      _sensors._produceErrorPerPartition.get(_partition).record();
+      _sensors._produceErrorInLastSendPerPartition.put(_partition, true);
+      LOG.warn(_name + " failed to send message", exception);
     }
   }
 

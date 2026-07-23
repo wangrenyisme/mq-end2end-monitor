@@ -95,6 +95,11 @@ public class PulsarConsumerService implements Service {
         BaseConsumerRecord record = null;
         try {
           record = _consumer.receive();
+          if (record == null) {
+            LOG.error("{}/PulsarConsumerService: receive() timed out, Pulsar broker may be unavailable.", _name);
+            _sensors._consumeError.record();
+            continue;
+          }
           GenericRecord genericRecord = Utils.genericRecordFromJson(record.value());
           long prevMs = (long) genericRecord.get(DefaultTopicSchema.TIME_FIELD.name());
           long index = (long) genericRecord.get(DefaultTopicSchema.INDEX_FIELD.name());
