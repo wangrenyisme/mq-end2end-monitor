@@ -5,7 +5,7 @@
     "service.url": "pulsar://localhost:6650",
     "http.url": "http://localhost:8080",
     "produce.record.delay.ms": 100,
-    "produce.record.rate.sec": 100000,
+    "produce.record.rate.sec": 1000,
     "produce.sync": false,
     "subscription.name": "end2endMonitorGroup",
     "topic-management.topicManagementEnabled": true,
